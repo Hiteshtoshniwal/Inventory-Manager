@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventory - Vendor Manager</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar" id="topbar"></div>
+<div class="container">
+  <div class="toolbar">
+    <h2 style="margin:0;">Inventory</h2>
+    <button class="btn btn-primary" id="addBtn">+ Add Item</button>
+  </div>
+
+  <div class="tabs" id="categoryTabs">
+    <button data-cat="" class="active">All</button>
+    <button data-cat="oils">Oils</button>
+    <button data-cat="kirana">Kirana</button>
+    <button data-cat="covers">Covers &amp; Packing</button>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Search items...">
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th><th>Category</th><th>Quantity</th><th>Price/Unit</th><th>Stock Value</th><th>Status</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="itemsTable"></tbody>
+  </table>
+  <div class="empty-state" id="emptyState" style="display:none;">No items found. Add one to get started.</div>
+</div>
+
+<div class="modal-overlay" id="itemModal">
+  <div class="modal">
+    <h3 id="modalTitle">Add Item</h3>
+    <form id="itemForm">
+      <input type="hidden" id="itemId">
+      <div class="field">
+        <label>Category</label>
+        <select id="fCategory" required>
+          <option value="oils">Oils</option>
+          <option value="kirana">Kirana</option>
+          <option value="covers">Covers &amp; Packing Material</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Item Name</label>
+        <input type="text" id="fName" required>
+      </div>
+      <div class="field">
+        <label>Unit (kg, litre, pcs, box...)</label>
+        <input type="text" id="fUnit" value="pcs">
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <input type="number" step="0.01" id="fQuantity" value="0">
+      </div>
+      <div class="field">
+        <label>Price per Unit (₹)</label>
+        <input type="number" step="0.01" id="fPrice" value="0">
+      </div>
+      <div class="field">
+        <label>Low Stock Alert Threshold</label>
+        <input type="number" step="0.01" id="fThreshold" value="0">
+      </div>
+      <div class="field">
+        <label>Notes</label>
+        <textarea id="fNotes" rows="2"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/inventory.js"></script>
+</body>
+</html>

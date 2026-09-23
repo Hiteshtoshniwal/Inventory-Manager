@@ -1,0 +1,224 @@
+import os
+from datetime import datetime
+
+from flask import Flask, request, jsonify, send_from_directory
+
+from models import db, InventoryItem, Receivable, Payment, CATEGORIES, CATEGORY_LABELS
+
+
+def r2(value):
+    """Round a number to 2 decimal places, safely handling None/blank input."""
+    try:
+        return round(float(value or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "static")
+
+app = Flask(__name__, static_folder=None)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-key")
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "vendor.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+
+
+# ---------------------------------------------------------------------------
+# Frontend page serving (static HTML/CSS/JS) - no login required
+# ---------------------------------------------------------------------------
+
+@app.route("/")
+def serve_root():
+    return send_from_directory(FRONTEND_DIR, "dashboard.html")
+
+
+@app.route("/<path:filename>")
+def serve_static_files(filename):
+    full_path = os.path.join(FRONTEND_DIR, filename)
+    if os.path.isfile(full_path):
+        return send_from_directory(FRONTEND_DIR, filename)
+    return jsonify({"error": "not_found"}), 404
+
+
+# ---------------------------------------------------------------------------
+# Inventory API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/inventory", methods=["GET", "POST"])
+def api_inventory():
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        category = data.get("category")
+        if category not in CATEGORIES:
+            return jsonify({"ok": False, "error": "invalid category"}), 400
+        item = InventoryItem(
+            category=category,
+            name=(data.get("name") or "").strip(),
+            unit=data.get("unit") or "pcs",
+            quantity=r2(data.get("quantity")),
+            price_per_unit=r2(data.get("price_per_unit")),
+            low_stock_threshold=r2(data.get("low_stock_threshold")),
+            notes=data.get("notes") or "",
+        )
+        if not item.name:
+            return jsonify({"ok": False, "error": "name is required"}), 400
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({"ok": True, "item": item.to_dict()})
+
+    category = request.args.get("category")
+    q = InventoryItem.query
+    if category and category in CATEGORIES:
+        q = q.filter_by(category=category)
+    search = request.args.get("search")
+    if search:
+        q = q.filter(InventoryItem.name.ilike(f"%{search}%"))
+    items = q.order_by(InventoryItem.category, InventoryItem.name).all()
+    return jsonify([i.to_dict() for i in items])
+
+
+@app.route("/api/inventory/<int:item_id>", methods=["PUT", "DELETE"])
+def api_inventory_item(item_id):
+    item = db.session.get(InventoryItem, item_id)
+    if not item:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    if request.method == "DELETE":
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    data = request.get_json(force=True)
+    for field in ["name", "unit", "notes"]:
+        if field in data:
+            setattr(item, field, data[field])
+    for field in ["quantity", "price_per_unit", "low_stock_threshold"]:
+        if field in data:
+            setattr(item, field, r2(data[field]))
+    if data.get("category") in CATEGORIES:
+        item.category = data["category"]
+    item.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"ok": True, "item": item.to_dict()})
+
+
+# ---------------------------------------------------------------------------
+# Receivables API (money customers owe the vendor)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/receivables", methods=["GET", "POST"])
+def api_receivables():
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        name = (data.get("customer_name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "customer_name is required"}), 400
+        due_date = None
+        if data.get("due_date"):
+            due_date = datetime.strptime(data["due_date"], "%Y-%m-%d").date()
+        r = Receivable(
+            customer_name=name,
+            phone=data.get("phone") or "",
+            total_amount=r2(data.get("total_amount")),
+            amount_paid=r2(data.get("amount_paid")),
+            due_date=due_date,
+            notes=data.get("notes") or "",
+        )
+        db.session.add(r)
+        db.session.commit()
+        return jsonify({"ok": True, "receivable": r.to_dict()})
+
+    status_filter = request.args.get("status")
+    search = request.args.get("search")
+    q = Receivable.query
+    if search:
+        q = q.filter(Receivable.customer_name.ilike(f"%{search}%"))
+    items = [r.to_dict() for r in q.order_by(Receivable.date_created.desc()).all()]
+    if status_filter in ("pending", "partial", "paid"):
+        items = [i for i in items if i["status"] == status_filter]
+    return jsonify(items)
+
+
+@app.route("/api/receivables/<int:rec_id>", methods=["PUT", "DELETE"])
+def api_receivable_item(rec_id):
+    r = db.session.get(Receivable, rec_id)
+    if not r:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    if request.method == "DELETE":
+        db.session.delete(r)
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    data = request.get_json(force=True)
+    for field in ["customer_name", "phone", "notes"]:
+        if field in data:
+            setattr(r, field, data[field])
+    if "total_amount" in data:
+        r.total_amount = r2(data["total_amount"])
+    if "due_date" in data:
+        r.due_date = datetime.strptime(data["due_date"], "%Y-%m-%d").date() if data["due_date"] else None
+    db.session.commit()
+    return jsonify({"ok": True, "receivable": r.to_dict()})
+
+
+@app.route("/api/receivables/<int:rec_id>/payment", methods=["POST"])
+def api_receivable_payment(rec_id):
+    r = db.session.get(Receivable, rec_id)
+    if not r:
+        return jsonify({"ok": False, "error": "not found"}), 404
+    data = request.get_json(force=True)
+    amount = r2(data.get("amount"))
+    if amount <= 0:
+        return jsonify({"ok": False, "error": "amount must be positive"}), 400
+    payment = Payment(receivable_id=r.id, amount=amount, note=data.get("note") or "")
+    r.amount_paid = r2((r.amount_paid or 0) + amount)
+    db.session.add(payment)
+    db.session.commit()
+    return jsonify({"ok": True, "receivable": r.to_dict()})
+
+
+# ---------------------------------------------------------------------------
+# Dashboard summary
+# ---------------------------------------------------------------------------
+
+@app.route("/api/dashboard")
+def api_dashboard():
+    by_category = {}
+    total_stock_value = 0
+    low_stock_count = 0
+    for cat in CATEGORIES:
+        items = InventoryItem.query.filter_by(category=cat).all()
+        value = sum((i.quantity or 0) * (i.price_per_unit or 0) for i in items)
+        low = sum(1 for i in items if (i.quantity or 0) <= (i.low_stock_threshold or 0))
+        by_category[cat] = {
+            "label": CATEGORY_LABELS[cat],
+            "item_count": len(items),
+            "stock_value": round(value, 2),
+            "low_stock_count": low,
+        }
+        total_stock_value += value
+        low_stock_count += low
+
+    receivables = Receivable.query.all()
+    total_outstanding = sum(r.balance for r in receivables if r.balance > 0)
+    total_customers_owing = sum(1 for r in receivables if r.balance > 0)
+
+    return jsonify({
+        "by_category": by_category,
+        "total_stock_value": round(total_stock_value, 2),
+        "total_items": sum(v["item_count"] for v in by_category.values()),
+        "low_stock_count": low_stock_count,
+        "total_outstanding": round(total_outstanding, 2),
+        "total_customers_owing": total_customers_owing,
+    })
+
+
+def ensure_db():
+    with app.app_context():
+        db.create_all()
+
+
+if __name__ == "__main__":
+    ensure_db()
+    app.run(debug=True, host="0.0.0.0", port=5000)
