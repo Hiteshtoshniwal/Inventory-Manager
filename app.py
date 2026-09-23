@@ -24,11 +24,6 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
 
-
-# ---------------------------------------------------------------------------
-# Frontend page serving (static HTML/CSS/JS) - no login required
-# ---------------------------------------------------------------------------
-
 @app.route("/")
 def serve_root():
     return send_from_directory(FRONTEND_DIR, "dashboard.html")
@@ -40,11 +35,6 @@ def serve_static_files(filename):
     if os.path.isfile(full_path):
         return send_from_directory(FRONTEND_DIR, filename)
     return jsonify({"error": "not_found"}), 404
-
-
-# ---------------------------------------------------------------------------
-# Inventory API
-# ---------------------------------------------------------------------------
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 def api_inventory():
@@ -101,11 +91,6 @@ def api_inventory_item(item_id):
     item.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"ok": True, "item": item.to_dict()})
-
-
-# ---------------------------------------------------------------------------
-# Receivables API (money customers owe the vendor)
-# ---------------------------------------------------------------------------
 
 @app.route("/api/receivables", methods=["GET", "POST"])
 def api_receivables():
@@ -177,11 +162,6 @@ def api_receivable_payment(rec_id):
     db.session.commit()
     return jsonify({"ok": True, "receivable": r.to_dict()})
 
-
-# ---------------------------------------------------------------------------
-# Dashboard summary
-# ---------------------------------------------------------------------------
-
 @app.route("/api/dashboard")
 def api_dashboard():
     by_category = {}
@@ -218,9 +198,6 @@ def ensure_db():
     with app.app_context():
         db.create_all()
 
-
-# Create tables on import too (needed for WSGI/gunicorn-based hosting,
-# not just "python app.py" during local development).
 ensure_db()
 
 if __name__ == "__main__":
