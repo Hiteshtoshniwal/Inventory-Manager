@@ -22,14 +22,24 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "static")
 app = Flask(__name__, static_folder=None)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-key")
 
-# Vercel's filesystem is read-only everywhere except /tmp. Vercel sets the
-# VERCEL env var automatically, so use /tmp there; use a normal local file
-# everywhere else (your laptop, PythonAnywhere, Render, Railway, etc).
-if os.environ.get("VERCEL"):
-    db_path = "/tmp/vendor.db"
+database_url = os.environ.get("DATABASE_URL")
+if database_url:
+    # Neon/most Postgres hosts give a "postgres://" or "postgresql://" URL;
+    # SQLAlchemy wants the "postgresql://" form.
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 else:
-    db_path = os.path.join(BASE_DIR, "vendor.db")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + db_path
+    # No DATABASE_URL set (e.g. plain local development) -> fall back to
+    # SQLite. Vercel's filesystem is read-only except /tmp, so use that
+    # there; use a normal local file everywhere else. Once DATABASE_URL
+    # (Postgres) is set, this branch is never used on Vercel.
+    if os.environ.get("VERCEL"):
+        db_path = "/tmp/vendor.db"
+    else:
+        db_path = os.path.join(BASE_DIR, "vendor.db")
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + db_path
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
