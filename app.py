@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_from_directory
 
 from models import db, InventoryItem, Receivable, Payment, CATEGORIES, CATEGORY_LABELS
- 
+
 load_dotenv()
- 
+
 
 def r2(value):
     """Round a number to 2 decimal places, safely handling None/blank input."""
@@ -21,10 +21,24 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "static")
 
 app = Flask(__name__, static_folder=None)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-key")
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(BASE_DIR, "vendor.db")
+
+# Vercel's filesystem is read-only everywhere except /tmp. Vercel sets the
+# VERCEL env var automatically, so use /tmp there; use a normal local file
+# everywhere else (your laptop, PythonAnywhere, Render, Railway, etc).
+if os.environ.get("VERCEL"):
+    db_path = "/tmp/vendor.db"
+else:
+    db_path = os.path.join(BASE_DIR, "vendor.db")
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + db_path
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
+
+
+
+# ---------------------------------------------------------------------------
+# Frontend page serving (static HTML/CSS/JS) - no login required
+# ---------------------------------------------------------------------------
 
 @app.route("/")
 def serve_root():
@@ -37,6 +51,11 @@ def serve_static_files(filename):
     if os.path.isfile(full_path):
         return send_from_directory(FRONTEND_DIR, filename)
     return jsonify({"error": "not_found"}), 404
+
+
+# ---------------------------------------------------------------------------
+# Inventory API
+# ---------------------------------------------------------------------------
 
 @app.route("/api/inventory", methods=["GET", "POST"])
 def api_inventory():
@@ -93,6 +112,11 @@ def api_inventory_item(item_id):
     item.updated_at = datetime.utcnow()
     db.session.commit()
     return jsonify({"ok": True, "item": item.to_dict()})
+
+
+# ---------------------------------------------------------------------------
+# Receivables API (money customers owe the vendor)
+# ---------------------------------------------------------------------------
 
 @app.route("/api/receivables", methods=["GET", "POST"])
 def api_receivables():
@@ -164,6 +188,11 @@ def api_receivable_payment(rec_id):
     db.session.commit()
     return jsonify({"ok": True, "receivable": r.to_dict()})
 
+
+# ---------------------------------------------------------------------------
+# Dashboard summary
+# ---------------------------------------------------------------------------
+
 @app.route("/api/dashboard")
 def api_dashboard():
     by_category = {}
@@ -200,6 +229,9 @@ def ensure_db():
     with app.app_context():
         db.create_all()
 
+
+# Create tables on import too (needed for WSGI/gunicorn-based hosting,
+# not just "python app.py" during local development).
 ensure_db()
 
 if __name__ == "__main__":
