@@ -219,6 +219,9 @@ def ensure_db():
         db.create_all()
 
 
+# Create tables on import too (needed for WSGI/gunicorn-based hosting,
+# not just "python app.py" during local development).
+ensure_db()
+
 if __name__ == "__main__":
-    ensure_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
