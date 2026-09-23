@@ -1,10 +1,12 @@
 import os
 from datetime import datetime
-
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_from_directory
 
 from models import db, InventoryItem, Receivable, Payment, CATEGORIES, CATEGORY_LABELS
-
+ 
+load_dotenv()
+ 
 
 def r2(value):
     """Round a number to 2 decimal places, safely handling None/blank input."""
