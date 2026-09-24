@@ -49,7 +49,9 @@ async function loadItems() {
       <td><b>${escapeHtml(i.name)}</b>${i.notes ? `<div style="color:var(--muted); font-size:0.78rem;">${escapeHtml(i.notes)}</div>` : ""}</td>
       <td>${escapeHtml(i.category_label)}</td>
       <td>${i.quantity} ${escapeHtml(i.unit)}</td>
+      <td>${money(i.purchase_price)}</td>
       <td>${money(i.price_per_unit)}</td>
+      <td style="color:${i.profit_per_unit >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:600;">${money(i.profit_per_unit)}</td>
       <td>${money(i.stock_value)}</td>
       <td>${i.low_stock ? `<span class="badge badge-danger">Low Stock</span>` : `<span class="badge badge-success">OK</span>`}</td>
       <td style="white-space:nowrap;">
@@ -75,6 +77,7 @@ function editItem(item) {
   document.getElementById("fName").value = item.name;
   document.getElementById("fUnit").value = item.unit;
   document.getElementById("fQuantity").value = item.quantity;
+  document.getElementById("fPurchasePrice").value = item.purchase_price;
   document.getElementById("fPrice").value = item.price_per_unit;
   document.getElementById("fThreshold").value = item.low_stock_threshold;
   document.getElementById("fNotes").value = item.notes;
@@ -93,6 +96,7 @@ async function saveItem(e) {
     name: document.getElementById("fName").value,
     unit: document.getElementById("fUnit").value,
     quantity: parseFloat(document.getElementById("fQuantity").value || 0),
+    purchase_price: parseFloat(document.getElementById("fPurchasePrice").value || 0),
     price_per_unit: parseFloat(document.getElementById("fPrice").value || 0),
     low_stock_threshold: parseFloat(document.getElementById("fThreshold").value || 0),
     notes: document.getElementById("fNotes").value,

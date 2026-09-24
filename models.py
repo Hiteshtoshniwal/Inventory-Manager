@@ -17,11 +17,25 @@ class InventoryItem(db.Model):
     name = db.Column(db.String(120), nullable=False)
     unit = db.Column(db.String(30), default="pcs")  # kg, litre, pcs, box, etc.
     quantity = db.Column(db.Float, default=0)
-    price_per_unit = db.Column(db.Float, default=0)
+    purchase_price = db.Column(db.Float, default=0)   # what you paid, per unit
+    price_per_unit = db.Column(db.Float, default=0)   # selling price, per unit
     low_stock_threshold = db.Column(db.Float, default=0)
     notes = db.Column(db.String(255), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    profit_logs = db.relationship(
+        "ProfitLog", backref="item", cascade="all, delete-orphan", lazy=True
+    )
+
+    @property
+    def profit_per_unit(self):
+        return round((self.price_per_unit or 0) - (self.purchase_price or 0), 2)
+
+    @property
+    def total_potential_profit(self):
+        """Profit if all current stock sells at the selling price."""
+        return round(self.profit_per_unit * (self.quantity or 0), 2)
 
     def to_dict(self):
         return {
@@ -31,12 +45,44 @@ class InventoryItem(db.Model):
             "name": self.name,
             "unit": self.unit,
             "quantity": self.quantity,
+            "purchase_price": self.purchase_price,
             "price_per_unit": self.price_per_unit,
             "stock_value": round((self.quantity or 0) * (self.price_per_unit or 0), 2),
+            "profit_per_unit": self.profit_per_unit,
+            "total_potential_profit": self.total_potential_profit,
             "low_stock_threshold": self.low_stock_threshold,
             "low_stock": (self.quantity or 0) <= (self.low_stock_threshold or 0),
             "notes": self.notes,
             "updated_at": self.updated_at.strftime("%Y-%m-%d %H:%M") if self.updated_at else None,
+        }
+
+
+class ProfitLog(db.Model):
+    """A snapshot of an item's profit, recorded each time the item is updated."""
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey("inventory_item.id"), nullable=False)
+    item_name = db.Column(db.String(120), nullable=False)
+    category = db.Column(db.String(20), nullable=False)
+    quantity = db.Column(db.Float, default=0)
+    purchase_price = db.Column(db.Float, default=0)
+    price_per_unit = db.Column(db.Float, default=0)
+    profit_per_unit = db.Column(db.Float, default=0)
+    total_potential_profit = db.Column(db.Float, default=0)
+    recorded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "item_id": self.item_id,
+            "item_name": self.item_name,
+            "category": self.category,
+            "category_label": CATEGORY_LABELS.get(self.category, self.category),
+            "quantity": self.quantity,
+            "purchase_price": self.purchase_price,
+            "price_per_unit": self.price_per_unit,
+            "profit_per_unit": self.profit_per_unit,
+            "total_potential_profit": self.total_potential_profit,
+            "recorded_at": self.recorded_at.strftime("%Y-%m-%d %H:%M") if self.recorded_at else None,
         }
 
 

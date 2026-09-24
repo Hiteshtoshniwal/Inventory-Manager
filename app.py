@@ -3,7 +3,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_from_directory
 
-from models import db, InventoryItem, Receivable, Payment, CATEGORIES, CATEGORY_LABELS
+from models import db, InventoryItem, Receivable, Payment, ProfitLog, CATEGORIES, CATEGORY_LABELS
 
 load_dotenv()
 
@@ -67,6 +67,22 @@ def serve_static_files(filename):
 # Inventory API
 # ---------------------------------------------------------------------------
 
+def log_profit_snapshot(item):
+    """Record a profit snapshot for this item. Called whenever an item is
+    created or updated, so you get a history of margin changes over time."""
+    snapshot = ProfitLog(
+        item_id=item.id,
+        item_name=item.name,
+        category=item.category,
+        quantity=item.quantity,
+        purchase_price=item.purchase_price,
+        price_per_unit=item.price_per_unit,
+        profit_per_unit=item.profit_per_unit,
+        total_potential_profit=item.total_potential_profit,
+    )
+    db.session.add(snapshot)
+
+
 @app.route("/api/inventory", methods=["GET", "POST"])
 def api_inventory():
     if request.method == "POST":
@@ -79,6 +95,7 @@ def api_inventory():
             name=(data.get("name") or "").strip(),
             unit=data.get("unit") or "pcs",
             quantity=r2(data.get("quantity")),
+            purchase_price=r2(data.get("purchase_price")),
             price_per_unit=r2(data.get("price_per_unit")),
             low_stock_threshold=r2(data.get("low_stock_threshold")),
             notes=data.get("notes") or "",
@@ -86,6 +103,8 @@ def api_inventory():
         if not item.name:
             return jsonify({"ok": False, "error": "name is required"}), 400
         db.session.add(item)
+        db.session.flush()  # assigns item.id before we log the first snapshot
+        log_profit_snapshot(item)
         db.session.commit()
         return jsonify({"ok": True, "item": item.to_dict()})
 
@@ -114,14 +133,25 @@ def api_inventory_item(item_id):
     for field in ["name", "unit", "notes"]:
         if field in data:
             setattr(item, field, data[field])
-    for field in ["quantity", "price_per_unit", "low_stock_threshold"]:
+    for field in ["quantity", "purchase_price", "price_per_unit", "low_stock_threshold"]:
         if field in data:
             setattr(item, field, r2(data[field]))
     if data.get("category") in CATEGORIES:
         item.category = data["category"]
     item.updated_at = datetime.utcnow()
+    log_profit_snapshot(item)
     db.session.commit()
     return jsonify({"ok": True, "item": item.to_dict()})
+
+
+@app.route("/api/inventory/<int:item_id>/profit-history")
+def api_item_profit_history(item_id):
+    logs = (
+        ProfitLog.query.filter_by(item_id=item_id)
+        .order_by(ProfitLog.recorded_at.desc())
+        .all()
+    )
+    return jsonify([l.to_dict() for l in logs])
 
 
 # ---------------------------------------------------------------------------
@@ -207,18 +237,22 @@ def api_receivable_payment(rec_id):
 def api_dashboard():
     by_category = {}
     total_stock_value = 0
+    total_potential_profit = 0
     low_stock_count = 0
     for cat in CATEGORIES:
         items = InventoryItem.query.filter_by(category=cat).all()
         value = sum((i.quantity or 0) * (i.price_per_unit or 0) for i in items)
+        profit = sum(i.total_potential_profit for i in items)
         low = sum(1 for i in items if (i.quantity or 0) <= (i.low_stock_threshold or 0))
         by_category[cat] = {
             "label": CATEGORY_LABELS[cat],
             "item_count": len(items),
             "stock_value": round(value, 2),
+            "potential_profit": round(profit, 2),
             "low_stock_count": low,
         }
         total_stock_value += value
+        total_potential_profit += profit
         low_stock_count += low
 
     receivables = Receivable.query.all()
@@ -228,6 +262,7 @@ def api_dashboard():
     return jsonify({
         "by_category": by_category,
         "total_stock_value": round(total_stock_value, 2),
+        "total_potential_profit": round(total_potential_profit, 2),
         "total_items": sum(v["item_count"] for v in by_category.values()),
         "low_stock_count": low_stock_count,
         "total_outstanding": round(total_outstanding, 2),
